@@ -2,6 +2,7 @@ from torchvision import datasets, transforms
 # 下载数据集
 # train_set = datasets.MNIST("data", train=True, download=True, transform=transforms.ToTensor())
 # test_set = datasets.MNIST("data", train=False, download=True, transform=transforms.ToTensor())
+from torchvision import datasets, transforms
 import os
 import matplotlib.pyplot as plt
 import torch
@@ -13,25 +14,16 @@ from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
 
-# Dataset:创建数据集的函数；__init__:初始化数据内容和标签
-# __geyitem:获取数据内容和标签
-# __len__:获取数据集大小
-# daataloader:数据加载类，接受来自dataset已经加载好的数据集
-# torchbision:图形库，包含预训练模型，加载数据的函数、图片变换，裁剪、旋转等
-# torchtext:处理文本的工具包，将不同类型的额文件转换为datasets
-
 # 预处理
 transform = transforms.Compose([
-transforms.ToTensor(),
-transforms.Normalize((0.1307,), (0.3081,))
+    transforms.ToTensor(),
+    transforms.Normalize((0.1307,), (0.3081,))
 ])
-
 
 # 加载数据集
 # 训练数据集
 train_data = MNIST(root='./data', train=True, transform=transform, download=True)
 train_loader = DataLoader(dataset=train_data, batch_size=64, shuffle=True)
-# transform：指示加载的数据集应用的数据预处理的规则，shuffle：洗牌，是否打乱输入数据顺序
 # 测试数据集
 test_data = MNIST(root="./data", train=False, transform=transform, download=True)
 test_loader = DataLoader(dataset=test_data, batch_size=64, shuffle=True)
@@ -40,10 +32,6 @@ train_data_size = len(train_data)
 test_data_size = len(test_data)
 print("训练数据集的长度：{}".format(train_data_size))
 print("测试数据集的长度：{}".format(test_data_size))
-
-
-# print(test_data)
-# print(train_data)
 
 
 class MnistModel(nn.Module):
@@ -65,81 +53,153 @@ class MnistModel(nn.Module):
         x = self.linear1(x)
         x = self.linear2(x)
         x = self.linear3(x)
-
         return x
 
 
-# 损失函数CrossentropyLoss
-model = MnistModel()  # 实例化
-criterion = nn.CrossEntropyLoss()  # 交叉熵损失，相当于Softmax+Log+NllLoss
-# 线性多分类模型Softmax,给出最终预测值对于10个类别出现的概率，Log:将乘法转换为加法，减少计算量，保证函数的单调性
-# NLLLoss:计算损失，此过程不需要手动one-hot编码，NLLLoss会自动完成
+# 初始化模型、损失函数和优化器
+model = MnistModel()
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.14)
 
-# SGD，优化器，梯度下降算法e
-optimizer = torch.optim.SGD(model.parameters(), lr=0.14)  # lr:学习率
+# 用于记录训练过程的列表
+train_losses = []
+train_accuracies = []
+test_losses = []
+test_accuracies = []
 
 
-# 模型训练
-def train():
-    # index = 0
-    for index, data in enumerate(train_loader):  # 获取训练数据以及对应标签
-        # for data in train_loader:
-        input, target = data  # input为输入数据，target为标签
-        y_predict = model(input)  # 模型预测
-        loss = criterion(y_predict, target)
-        optimizer.zero_grad()  # 梯度清零
-        loss.backward()  # loss值反向传播
-        optimizer.step()  # 更新参数
-        # index += 1
-        if index % 100 == 0:  # 每一百次保存一次模型，打印损失
-            torch.save(model.state_dict(), "./model/model.pkl")  # 保存模型
-            torch.save(optimizer.state_dict(), "./model/optimizer.pkl")
-            print("训练次数为：{}，损失值为：{}".format(index, loss.item()))
+# 模型训练函数
+def train(epoch):
+    model.train()
+    running_loss = 0.0
+    correct = 0
+    total = 0
+
+    for batch_idx, (inputs, targets) in enumerate(train_loader):
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total += targets.size(0)
+        correct += predicted.eq(targets).sum().item()
+
+        if batch_idx % 100 == 0:
+            print(f'Epoch: {epoch} [{batch_idx * len(inputs)}/{len(train_loader.dataset)} '
+                  f'({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item():.6f}')
+
+    # 计算整个epoch的平均损失和准确率
+    epoch_loss = running_loss / len(train_loader)
+    epoch_acc = 100. * correct / total
+    train_losses.append(epoch_loss)
+    train_accuracies.append(epoch_acc)
+
+    return epoch_loss, epoch_acc
+
+
+# 模型测试函数
+def test(epoch):
+    model.eval()
+    test_loss = 0.0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for inputs, targets in test_loader:
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            test_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+
+    # 计算整个测试集的平均损失和准确率
+    epoch_loss = test_loss / len(test_loader)
+    epoch_acc = 100. * correct / total
+    test_losses.append(epoch_loss)
+    test_accuracies.append(epoch_acc)
+
+    print(f'测试集结果 - 轮次: {epoch}, 平均损失: {epoch_loss:.4f}, '
+          f'准确率: {correct}/{total} ({epoch_acc:.2f}%)\n')
+
+    return epoch_loss, epoch_acc
 
 
 # 加载模型
 if os.path.exists('./model/model.pkl'):
-    model.load_state_dict(torch.load("./model/model.pkl"))  # 加载保存模型的参数
+    model.load_state_dict(torch.load("./model/model.pkl"))
+    print("加载已保存的模型参数")
 
+# 训练与测试
+epochs = 10
+print("开始训练...")
 
-# 模型测试
-def test():
-    correct = 0  # 正确预测的个数
-    total = 0  # 总数
-    with torch.no_grad():  # 测试不用计算梯度
-        for data in test_loader:
-            input, target = data
-            output = model(input)  # output输出10个预测取值，概率最大的为预测数
-            probability, predict = torch.max(input=output.data, dim=1)  # 返回一个元祖，第一个为最大概率值，第二个为最大概率值的下标
-            # loss = criterion(output, target)
-            total += target.size(0)  # target是形状为（batch_size,1)的矩阵，使用size（0）取出该批的大小
-            correct += (predict == target).sum().item()  # predict 和target均为（batch_size,1)的矩阵，sum求出相等的个数
-        print("测试准确率为：%.6f" % (correct / total))
+for epoch in range(1, epochs + 1):
+    print(f"————————第{epoch}轮开始——————")
 
+    # 训练
+    train_loss, train_acc = train(epoch)
+    print(f"训练结果 - 轮次: {epoch}, 平均损失: {train_loss:.4f}, 准确率: {train_acc:.2f}%")
 
-# 测试识别函数
-if __name__ == '__main__':
-    # 训练与测试
-    for i in range(10):  # 训练和测试进行5轮
-        print({"————————第{}轮测试开始——————".format(i + 1)})
-        train()
-        test()
+    # 测试
+    test_loss, test_acc = test(epoch)
 
+    # 保存模型
+    torch.save(model.state_dict(), "./model/model.pkl")
+    torch.save(optimizer.state_dict(), "./model/optimizer.pkl")
 
-# def test_mydata():
-#     image = Image.open('./test/test_four.jpeg')  # 读取自定义手写图片
-#     image = image.resize((28, 28))  # 裁剪尺寸为28*28
-#     image = image.convert('L')  # 转换为灰度图像
-#     transform = transforms.ToTensor()
-#     image = transform(image)
-#     image = image.resize(1, 1, 28, 28)
-#     output = model(image)
-#     probability, predict = torch.max(output.data, dim=1)
-#     print("此手写图片值为：%d,其最大概率为：%.2f " % (predict[0], probability))
-#     plt.title("此手写图片值为：{}".format((int(predict))), fontname='SimHei')
-#     plt.imshow(image.squeeze())
-#     plt.show()
-#
-# # 测试主函数
-# if __name__ == '__main__':
-#     test_mydata()
+# 7. 可视化训练过程
+plt.figure(figsize=(12, 5))
+
+# 损失曲线
+plt.subplot(1, 2, 1)
+plt.plot(range(1, len(train_losses) + 1), train_losses, 'b-', label='Train', marker='o')
+plt.plot(range(1, len(test_losses) + 1), test_losses, 'r-', label='Test', marker='s')
+plt.xlabel('epoch')
+plt.ylabel('Loss')
+plt.title('Train and test loss')
+plt.legend()
+plt.grid(True)
+
+# 准确率曲线
+plt.subplot(1, 2, 2)
+plt.plot(range(1, len(train_accuracies) + 1), train_accuracies, 'b-', label='Train', marker='o')
+plt.plot(range(1, len(test_accuracies) + 1), test_accuracies, 'r-', label='Test', marker='s')
+plt.xlabel('epoch')
+plt.ylabel(' Accuracy(%)')
+plt.title('Train and test Accuracy')
+plt.legend()
+plt.grid(True)
+
+plt.tight_layout()
+plt.savefig('./training_curves.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# 最终测试结果
+print("最终测试结果:")
+model.eval()
+correct = 0
+total = 0
+
+with torch.no_grad():
+    for inputs, targets in test_loader:
+        outputs = model(inputs)
+        _, predicted = outputs.max(1)
+        total += targets.size(0)
+        correct += predicted.eq(targets).sum().item()
+
+final_accuracy = 100. * correct / total
+print(f"最终测试准确率: {correct}/{total} ({final_accuracy:.2f}%)")
+
+if final_accuracy > 90:
+    print("✓ 达到目标: 测试准确率 > 90%")
+else:
+    print("✗ 未达到目标: 测试准确率 < 90%")
+
+# print(f"\n训练损失记录: {train_losses}")
+# print(f"训练准确率记录: {train_accuracies}")
+# print(f"测试损失记录: {test_losses}")
+# print(f"测试准确率记录: {test_accuracies}")
